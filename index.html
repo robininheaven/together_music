@@ -397,7 +397,7 @@
 </div>
 
 <div class="toast" id="toast"></div>
-<audio id="audio-el" preload="auto" crossorigin="anonymous"></audio>
+<audio id="audio-el" preload="auto"></audio>
 
 <!-- Supabase JS client -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -434,6 +434,14 @@
 
   const el = (id) => document.getElementById(id);
   const audio = el('audio-el');
+
+  audio.addEventListener('error', () => {
+    const codes = { 1: 'aborted', 2: 'network error', 3: 'decode error', 4: 'source not supported / blocked (check CORS or the URL)' };
+    const code = audio.error ? audio.error.code : null;
+    console.error('Audio error:', code, codes[code] || 'unknown');
+    showToast('Could not play that track (' + (codes[code] || 'unknown error') + ')');
+  });
+  audio.addEventListener('stalled', () => console.warn('Audio stalled (slow network or blocked request)'));
 
   function showScreen(name){
     document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
@@ -660,99 +668,4 @@
   // ---------- Heartbeat (fallback presence, e.g. for stale-row cleanup) ----------
   function startHeartbeat(){
     stopHeartbeat();
-    beat();
-    heartbeatTimer = setInterval(beat, HEARTBEAT_MS);
-    async function beat(){
-      if (!roomCode) return;
-      try {
-        await supabase.from('heartbeats').upsert({
-          code: roomCode, device_id: deviceId, last_seen: Date.now()
-        });
-      } catch (e) {}
-    }
-  }
-  function stopHeartbeat(){ if (heartbeatTimer) clearInterval(heartbeatTimer); heartbeatTimer = null; }
-
-  // ---------- Publishing local actions ----------
-  async function publish(partial){
-    if (!roomCode) return;
-    let current;
-    try { current = await readRoom(roomCode); } catch (e) { current = {}; }
-    const next = Object.assign({}, current, partial, { updatedAt: Date.now(), updatedBy: deviceId });
-    try {
-      await writeRoom(roomCode, next);
-      applyState(next, {});
-    } catch (e) {
-      showToast("Couldn't update the room — check your connection");
-    }
-  }
-
-  el('btn-play-pause').addEventListener('click', () => {
-    if (awaitingPlayGesture) {
-      audio.play().then(() => { awaitingPlayGesture = false; }).catch(() => {});
-    }
-    const wantPlay = audio.paused;
-    publish({ isPlaying: wantPlay, position: audio.currentTime || 0 });
-  });
-
-  el('btn-set-track').addEventListener('click', () => {
-    const url = el('input-track-url').value.trim();
-    if (!url) { showToast('Paste a link to an audio file first'); return; }
-    let title = 'Custom track';
-    try {
-      const clean = url.split('?')[0];
-      title = decodeURIComponent(clean.substring(clean.lastIndexOf('/') + 1)) || title;
-    } catch (e) {}
-    publish({ audioUrl: url, title, isPlaying: false, position: 0 });
-    el('input-track-url').value = '';
-    showToast('Track set for the room');
-  });
-
-  // ---------- Seek bar ----------
-  el('seek-bar').addEventListener('input', () => { isDraggingSeek = true; });
-  el('seek-bar').addEventListener('change', () => {
-    const pct = parseFloat(el('seek-bar').value) / 100;
-    const newPos = (audio.duration || 0) * pct;
-    isDraggingSeek = false;
-    publish({ position: newPos });
-  });
-
-  // local progress + drift readout
-  progressTimer = setInterval(() => {
-    if (!isDraggingSeek && audio.duration) {
-      el('seek-bar').value = (audio.currentTime / audio.duration) * 100 || 0;
-    }
-    el('time-current').textContent = fmtTime(audio.currentTime);
-    el('time-total').textContent = fmtTime(audio.duration);
-  }, 250);
-
-  // ---------- Volume (local only) ----------
-  el('volume-bar').addEventListener('input', (e) => {
-    audio.volume = parseInt(e.target.value, 10) / 100;
-  });
-  audio.volume = 0.8;
-
-  // ---------- Copy room code ----------
-  el('display-room-code').addEventListener('click', async () => {
-    if (!roomCode) return;
-    try {
-      await navigator.clipboard.writeText(roomCode);
-      showToast('Room code copied');
-    } catch (e) {
-      showToast('Room code: ' + roomCode);
-    }
-  });
-
-  window.addEventListener('beforeunload', () => {
-    if (roomCode) {
-      try {
-        supabase.from('heartbeats').delete()
-          .eq('code', roomCode).eq('device_id', deviceId);
-      } catch (e) {}
-    }
-  });
-})();
-</script>
-</body>
-</html>
-
+    beat()
