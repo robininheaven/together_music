@@ -4,6 +4,17 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Sync Mixtape</title>
+
+<!-- Installable app config -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#181129">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sync Mixtape">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png" sizes="192x192" type="image/png">
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;900&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -349,6 +360,12 @@
     <h1 class="hero">Sync<br>Mix<span>tape</span></h1>
     <p class="sub">Turn every phone in the room into one speaker. Start a room, share the code, everyone stays on the same beat.</p>
 
+    <div class="card stack" id="install-card" style="display:none;">
+      <p class="field-label" style="margin-bottom:2px;">Put this on your home screen</p>
+      <p class="helper" style="margin-top:0;" id="install-copy">Install it once and it opens full‑screen, like any other app.</p>
+      <button class="btn btn-ghost" id="btn-install">Install app</button>
+    </div>
+
     <div class="card stack">
       <button class="btn btn-primary" id="btn-create-room">Start a room</button>
       <div class="divider-label">or join one</div>
@@ -417,6 +434,32 @@
 <audio id="audio-el" preload="auto" crossorigin="anonymous"></audio>
 
 <script>
+window.addEventListener('error', function(e){
+  try{
+    var banner = document.getElementById('boot-error');
+    if(!banner){
+      banner = document.createElement('div');
+      banner.id = 'boot-error';
+      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#ff6161;color:#181129;font-family:monospace;font-size:12px;padding:10px 14px;z-index:9999;white-space:pre-wrap;';
+      document.body.prepend(banner);
+    }
+    banner.textContent = 'Script error: ' + (e.message || e);
+  }catch(err){}
+});
+
+(function(){
+  if (!window.storage || typeof window.storage.set !== 'function') {
+    document.addEventListener('DOMContentLoaded', function(){
+      var banner = document.createElement('div');
+      banner.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#ff6161;color:#181129;font-family:monospace;font-size:12px;padding:10px 14px;z-index:9999;';
+      banner.textContent = 'Storage isn\'t available in this view, so rooms can\'t sync here. Try opening this artifact directly in the Claude app or claude.ai.';
+      document.body.prepend(banner);
+    });
+    var btn = document.getElementById('btn-create-room');
+    if (btn) btn.disabled = false; // leave clickable so the later try/catch still reports specifics
+  }
+})();
+
 (function(){
   const DEFAULT_TRACK = {
     url: "https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3",
@@ -495,7 +538,7 @@
       await writeRoom(code, initial);
       await enterRoom(code);
     } catch (e) {
-      el('landing-error').textContent = "Couldn't start a room — try again.";
+      el('landing-error').textContent = "Couldn't start a room: " + (e && e.message ? e.message : e);
     } finally {
       el('btn-create-room').disabled = false;
     }
@@ -706,6 +749,39 @@
       try { window.storage.delete(`room:${roomCode}:hb:${deviceId}`, true); } catch (e) {}
     }
   });
+
+  // ---------- Installability ----------
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => { /* fine if unsupported (e.g. file://) */ });
+    });
+  }
+
+  let deferredInstallPrompt = null;
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    if (!isStandalone) el('install-card').style.display = 'flex';
+  });
+
+  el('btn-install').addEventListener('click', async () => {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      await deferredInstallPrompt.userChoice;
+      deferredInstallPrompt = null;
+      el('install-card').style.display = 'none';
+    }
+  });
+
+  // iOS has no install prompt API — show manual instructions instead.
+  if (isIOS && !isStandalone) {
+    el('install-copy').textContent = 'Tap the Share icon in Safari, then "Add to Home Screen".';
+    el('btn-install').style.display = 'none';
+    el('install-card').style.display = 'flex';
+  }
 })();
 </script>
 </body>
